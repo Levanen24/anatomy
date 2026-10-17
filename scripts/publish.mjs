@@ -255,10 +255,19 @@ export function submitPlan({ login, canPush, upstream, author, id, title }) {
     { say: `add ${folder} and nothing else`, publish: true },
     { git: ["add", "--", folder] },
     { git: ["commit", "--quiet", "-m", `Add ${title}`, "--", folder] },
-    { say: `push it to ${target}`, git: ["push", "--quiet", "--force", `https://github.com/${target}.git`, `HEAD:refs/heads/${branch}`] },
+    { say: `push it to ${target}`, push: { url: `https://github.com/${target}.git`, branch, folder, target } },
     { say: `open the pull request on ${upstream}`, pr: { repo: upstream, head: canPush ? branch : `${login}:${branch}`, title: `Add ${title}` } },
   ];
   return { target, branch, folder, steps };
+}
+
+export function pushFigure({ url, branch, folder, target, run }) {
+  const tip = run("git", ["ls-remote", url, `refs/heads/${branch}`]).split(/\s/)[0];
+  if (tip) {
+    run("git", ["fetch", "--quiet", url, `refs/heads/${branch}`]);
+    if (run("git", ["ls-tree", "--name-only", "FETCH_HEAD", "--", folder]) === "") throw new Error(`${branch} already exists on ${target} and does not hold ${folder}; pick another --id`);
+  }
+  run("git", ["push", "--quiet", `--force-with-lease=refs/heads/${branch}:${tip}`, url, `HEAD:refs/heads/${branch}`]);
 }
 
 async function confirm(question) {
@@ -300,6 +309,7 @@ async function submit(options) {
   for (const step of plan.steps) {
     if (step.gh) run("gh", step.gh);
     if (step.git) run("git", step.git);
+    if (step.push) pushFigure({ ...step.push, run });
     if (step.publish) {
       const onMain = run("git", ["ls-tree", "--name-only", "HEAD", "--", plan.folder]) !== "";
       published = publish({ ...options, force: options.force || !onMain, log: (line) => console.log(`  ${line}`) });
